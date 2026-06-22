@@ -1,84 +1,157 @@
 # luxafor
 
-[![Release](https://img.shields.io/github/v/release/joeblackwaslike/luxafor)](https://img.shields.io/github/v/release/joeblackwaslike/luxafor)
+> Python driver and internet health monitor for the Luxafor Flag USB LED device.
+
+[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
+[![License](https://img.shields.io/github/license/joeblackwaslike/luxafor)](https://github.com/joeblackwaslike/luxafor/blob/main/LICENSE)
 [![Build status](https://img.shields.io/github/actions/workflow/status/joeblackwaslike/luxafor/main.yml?branch=main)](https://github.com/joeblackwaslike/luxafor/actions/workflows/main.yml?query=branch%3Amain)
-[![codecov](https://codecov.io/gh/joeblackwaslike/luxafor/branch/main/graph/badge.svg)](https://codecov.io/gh/joeblackwaslike/luxafor)
-[![wemake-python-styleguide](https://img.shields.io/badge/style-wemake-000000.svg)](https://github.com/wemake-services/wemake-python-styleguide)
-[![Commit activity](https://img.shields.io/github/commit-activity/m/joeblackwaslike/luxafor)](https://img.shields.io/github/commit-activity/m/joeblackwaslike/luxafor)
-[![License](https://img.shields.io/github/license/joeblackwaslike/luxafor)](https://img.shields.io/github/license/joeblackwaslike/luxafor)
 
-This is a template repository for Python projects that use uv for their dependency management.
+Your [Luxafor Flag](https://luxafor.com/luxafor-flag/) is a $30 USB LED that blinks when you get a notification. This package turns it into a real-time internet health indicator — green when connectivity is solid, yellow when it degrades, red when it drops, blinking red when it's been down long enough to page someone.
 
-- **Github repository**: <https://github.com/joeblackwaslike/luxafor/>
-- **Documentation** <https://joeblackwaslike.github.io/luxafor/>
+```mermaid
+stateDiagram-v2
+    [*] --> HEALTHY
+    HEALTHY --> DEGRADED : health ≤ 0.8
+    DEGRADED --> HEALTHY : health > 0.8
+    DEGRADED --> DOWN : health ≤ 0.4
+    DOWN --> DEGRADED : health > 0.4
+    DOWN --> CRITICAL : down > critical_after
+    CRITICAL --> HEALTHY : recovery
 
-## Getting started with your project
-
-### 1. Create a New Repository
-
-First, create a repository on GitHub with the same name as this project, and then run the following commands:
-
-```shell
-git init -b main
-git add .
-git commit -m "init commit"
-git remote add origin git@github.com:joeblackwaslike/luxafor.git
-git push -u origin main
+    HEALTHY : 🟢 solid green
+    DEGRADED : 🟡 solid yellow
+    DOWN : 🔴 solid red
+    CRITICAL : 🔴 blinking red
 ```
 
-Or you can use the `gh` CLI to create the remote repository from the current directory:
+## Install
 
-```shell
-git init -b main
-git add .
-git commit -m "init commit"
-gh repo create luxafor --description "This is a template repository for Python projects that use uv for their dependency management." --public --source=. --remote=origin --push
+```bash
+git clone https://github.com/joeblackwaslike/luxafor.git
+cd luxafor
+uv sync
 ```
 
-### 2. Set Up Your Development Environment
+## What you get
 
-Then, install the environment and the pre-commit hooks with
+- **HID driver** — direct USB control of the Luxafor Flag via `hid` (vendor `0x04D8`, product `0xF372`), no official app required.
+- **Internet monitor** — concurrent TCP probes to `8.8.8.8`, `1.1.1.1`, and `9.9.9.9` with weighted health scoring, 3-second hysteresis, anomaly detection, and automatic LED updates.
+- **Webhook client** — async `httpx` client for the Luxafor remote webhook API.
 
-```shell
-make install
+## Quick start
+
+Set the flag to a specific color:
+
+```bash
+luxafor set-color red
 ```
 
-This will also generate your `uv.lock` file
+Start the internet health monitor:
 
-### 3. Run the pre-commit hooks
-
-Initially, the CI/CD pipeline might be failing due to formatting issues. To resolve those run:
-
-```shell
-uv run pre-commit run -a
+```bash
+luxafor monitor
 ```
 
-### 4. Commit the changes
+The monitor runs continuously, probing DNS resolvers every 1.5 seconds and mapping the weighted health score to an LED color. Use `--critical-after` / `-c` to set how many seconds of downtime before the flag starts blinking red (default: 300s):
 
-Lastly, commit the changes made by the two steps above to your repository.
-
-```shell
-git add .
-git commit -m 'Fix formatting issues'
-git push origin main
+```bash
+luxafor monitor --critical-after 60
 ```
 
-You are now ready to start development on your project!
-The CI/CD pipeline will be triggered when you open a pull request, merge to main, or when you create a new release.
+## How the monitor works
 
-To finalize the set-up for publishing to PyPI, see [here](https://joeblackwaslike.github.io/cookiecutter-uv/features/publishing/#set-up-for-pypi).
-For activating the automatic documentation with MkDocs, see [here](https://joeblackwaslike.github.io/cookiecutter-uv/features/mkdocs/#enabling-the-documentation-on-github).
-To enable the code coverage reports, see [here](https://joeblackwaslike.github.io/cookiecutter-uv/features/codecov/).
+Each probe round opens TCP connections to three public DNS resolvers concurrently with a 2-second timeout. Results feed a sliding window of 20 samples, weighted toward recency.
 
-## Releasing a new version
+| Health score | Status | LED |
+|---|---|---|
+| > 0.8 | Healthy | 🟢 Green |
+| 0.4 – 0.8 | Degraded | 🟡 Yellow |
+| ≤ 0.4 | Down | 🔴 Red |
+| Down > threshold | Critical | 🔴 Blinking red |
 
-- Create an API Token on [PyPI](https://pypi.org/).
-- Add the API Token to your projects secrets with the name `PYPI_TOKEN` by visiting [this page](https://github.com/joeblackwaslike/luxafor/settings/secrets/actions/new).
-- Create a [new release](https://github.com/joeblackwaslike/luxafor/releases/new) on Github.
-- Create a new tag in the form `*.*.*`.
+State transitions require 3 seconds of sustained change (hysteresis) to avoid flicker. If a single probe fails amid otherwise healthy traffic, the flag flashes cyan briefly (anomaly detection) but doesn't change state.
 
-For more details, see [here](https://joeblackwaslike.github.io/cookiecutter-uv/features/cicd/#how-to-trigger-a-release).
+## HID protocol
 
----
+The Luxafor Flag communicates over 8-byte HID reports:
 
-Repository initiated with [joeblackwaslike/cookiecutter-uv](https://github.com/joeblackwaslike/cookiecutter-uv).
+```
+Byte 0: Report ID (0x00)
+Byte 1: Reserved (0x00)
+Byte 2: Color code (ASCII: R=0x52, G=0x47, B=0x42, ...)
+Byte 3–7: Reserved (0x00)
+```
+
+Available colors: `off`, `red`, `green`, `blue`, `cyan`, `magenta`, `yellow`, `white`.
+
+## Project structure
+
+```
+src/luxafor/
+├── __main__.py      # Typer CLI (set-color, monitor)
+├── monitor.py       # Internet health monitor
+├── util.py          # Loguru logger setup
+├── local/
+│   ├── __init__.py  # Exports FlagColor, HIDBuffer, LuxaforFlag
+│   └── _hid.py      # USB HID driver
+└── remote/
+    ├── __init__.py   # Exports FlagColor, RemoteWebhookFlag
+    └── webhook.py    # Async webhook client
+```
+
+## Configuration
+
+The monitor uses sensible defaults with no config file required:
+
+| Parameter | Default | Description |
+|---|---|---|
+| Probe targets | `8.8.8.8:53`, `1.1.1.1:53`, `9.9.9.9:53` | DNS resolvers to probe |
+| Probe interval | 1.5s | Time between probe rounds |
+| Probe timeout | 2.0s | TCP connect timeout per target |
+| Window size | 20 | Sliding window of samples |
+| Hysteresis | 3.0s | Required duration before state change |
+| Critical after | 300s | Seconds of downtime before blinking red |
+| Blink interval | 0.5s | Critical-state blink rate |
+
+Override `--critical-after` via the CLI. Other parameters are module constants in [monitor.py](src/luxafor/monitor.py).
+
+## Running as a background service (macOS)
+
+Create a LaunchAgent to run the monitor persistently:
+
+```bash
+cat > ~/Library/LaunchAgents/com.luxafor.monitor.plist << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.luxafor.monitor</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/path/to/your/venv/bin/luxafor</string>
+        <string>monitor</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+</dict>
+</plist>
+EOF
+
+launchctl load ~/Library/LaunchAgents/com.luxafor.monitor.plist
+```
+
+## Development
+
+```bash
+uv sync
+uv run pytest tests/ -v
+uv run ruff check .
+uv run mypy
+```
+
+## License
+
+[MIT](LICENSE)

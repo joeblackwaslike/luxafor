@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>How luxafor works</title>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<style>
+/* ── Reset & Base ── */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+:root{
+  --bg:#080e1a;--bg1:#0f1a2e;--bg2:#162032;--bg3:#1c2940;
+  --border:#1e3452;--borderhi:#2d4d7a;
+  --text:#dde6f0;--muted:#7a9ab8;--dim:#3d5a78;
+  --sky:#38bdf8;--green:#4ade80;--orange:#fb923c;
+  --purple:#c084fc;--pink:#f472b6;--red:#f87171;--indigo:#818cf8;
+  --mono:'SF Mono','JetBrains Mono','Fira Code',Consolas,monospace;
+}
+
+html{scroll-behavior:smooth;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,sans-serif;line-height:1.6}
+body{min-height:100vh}
+a{color:var(--sky);text-decoration:none}
+a:hover{text-decoration:underline}
+
+/* ── Sticky Nav ── */
+nav.sticky{
+  position:sticky;top:0;z-index:100;
+  background:rgba(8,14,26,.92);backdrop-filter:blur(12px);
+  border-bottom:1px solid var(--border);padding:0 2rem;
+  display:flex;align-items:center;gap:2rem;height:52px;
+}
+nav.sticky .brand{font-weight:700;font-size:1.1rem;color:var(--green);font-family:var(--mono)}
+nav.sticky a{color:var(--muted);font-size:.85rem;font-weight:500;transition:color .2s}
+nav.sticky a:hover{color:var(--text);text-decoration:none}
+
+/* ── Sections ── */
+section{max-width:1100px;margin:0 auto;padding:4rem 2rem}
+section h2{font-size:1.8rem;margin-bottom:.5rem}
+section h2 .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:10px}
+.section-sub{color:var(--muted);margin-bottom:2rem;font-size:1.05rem}
+
+/* ── Hero ── */
+.hero{text-align:center;padding:6rem 2rem 4rem}
+.hero-badge{
+  display:inline-block;background:var(--bg2);border:1px solid var(--border);
+  border-radius:999px;padding:.35rem 1.2rem;font-size:.85rem;color:var(--muted);
+  margin-bottom:1.5rem;
+}
+.hero h1{font-size:2.8rem;font-weight:800;background:linear-gradient(135deg,var(--green),var(--sky));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:1rem}
+.hero .subtitle{max-width:640px;margin:0 auto 3rem;color:var(--muted);font-size:1.1rem}
+
+.why-grid{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1.5rem;
+  max-width:960px;margin:0 auto;text-align:left;
+}
+.why-card{
+  background:var(--bg1);border:1px solid var(--border);border-radius:12px;padding:1.5rem;
+  transition:border-color .2s;
+}
+.why-card:hover{border-color:var(--borderhi)}
+.why-card h3{font-size:1rem;margin-bottom:.5rem}
+.why-card p{color:var(--muted);font-size:.9rem}
+
+/* ── D3 Containers ── */
+.viz-wrap{
+  background:var(--bg1);border:1px solid var(--border);border-radius:12px;
+  padding:1.5rem;overflow:hidden;position:relative;
+}
+.viz-wrap svg{display:block;width:100%;height:auto}
+
+.viz-controls{display:flex;gap:.75rem;margin-bottom:1rem}
+.viz-controls button{
+  background:var(--bg3);border:1px solid var(--border);color:var(--text);
+  padding:.4rem 1rem;border-radius:6px;cursor:pointer;font-size:.85rem;
+  font-family:var(--mono);transition:background .2s,border-color .2s;
+}
+.viz-controls button:hover{background:var(--bg2);border-color:var(--borderhi)}
+
+/* ── HID Buffer ── */
+.hid-grid{display:flex;gap:0;justify-content:center;margin-bottom:2rem}
+.hid-cell{
+  width:80px;height:72px;border:1px solid var(--border);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  font-family:var(--mono);font-size:.85rem;background:var(--bg2);
+  transition:background .3s,border-color .3s;position:relative;
+}
+.hid-cell:first-child{border-radius:8px 0 0 8px}
+.hid-cell:last-child{border-radius:0 8px 8px 0}
+.hid-cell .idx{position:absolute;top:4px;left:6px;font-size:.65rem;color:var(--dim)}
+.hid-cell .val{font-size:1rem;font-weight:600}
+.hid-cell.highlight{border-color:var(--sky);background:rgba(56,189,248,.08)}
+.hid-bytes-output{
+  text-align:center;font-family:var(--mono);font-size:.95rem;color:var(--sky);
+  margin-bottom:2rem;padding:.75rem;background:var(--bg2);border-radius:8px;
+  border:1px solid var(--border);
+}
+
+.color-table{width:100%;border-collapse:collapse}
+.color-table th{text-align:left;color:var(--muted);font-size:.8rem;padding:.5rem .75rem;border-bottom:1px solid var(--border);font-weight:500}
+.color-table td{padding:.6rem .75rem;border-bottom:1px solid var(--border);font-size:.9rem;font-family:var(--mono)}
+.color-table tr{cursor:pointer;transition:background .2s}
+.color-table tr:hover{background:var(--bg2)}
+.color-table tr.active{background:rgba(56,189,248,.08)}
+.color-dot{display:inline-block;width:14px;height:14px;border-radius:50%;vertical-align:middle;margin-right:8px;border:1px solid rgba(255,255,255,.15)}
+
+/* ── Install ── */
+.install-steps{max-width:640px;margin:0 auto}
+.install-step{display:flex;gap:1.2rem;margin-bottom:1.5rem;align-items:flex-start}
+.step-num{
+  flex-shrink:0;width:36px;height:36px;border-radius:50%;
+  background:var(--bg3);border:1px solid var(--border);
+  display:flex;align-items:center;justify-content:center;
+  font-weight:700;font-size:.95rem;color:var(--sky);
+}
+.step-body h3{font-size:.95rem;margin-bottom:.35rem}
+.step-body p{color:var(--muted);font-size:.85rem;margin-bottom:.5rem}
+.step-body code{
+  display:block;background:var(--bg2);border:1px solid var(--border);
+  border-radius:8px;padding:.6rem 1rem;font-family:var(--mono);
+  font-size:.85rem;color:var(--green);white-space:pre;
+}
+
+/* ── Property Panel ── */
+.panel-overlay{
+  position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:200;
+  opacity:0;pointer-events:none;transition:opacity .25s;
+}
+.panel-overlay.open{opacity:1;pointer-events:auto}
+.prop-panel{
+  position:fixed;top:0;right:-400px;width:380px;max-width:90vw;height:100vh;
+  background:var(--bg1);border-left:1px solid var(--border);
+  z-index:210;padding:2rem 1.5rem;overflow-y:auto;
+  transition:right .3s cubic-bezier(.4,0,.2,1);
+}
+.prop-panel.open{right:0}
+.panel-badge{
+  display:inline-block;padding:.2rem .7rem;border-radius:4px;
+  font-family:var(--mono);font-size:.75rem;font-weight:600;
+  margin-bottom:.75rem;color:#fff;
+}
+.panel-label{font-size:1.2rem;font-weight:700;margin-bottom:1rem}
+.panel-row{display:flex;justify-content:space-between;padding:.5rem 0;border-bottom:1px solid var(--border);font-size:.85rem}
+.panel-row .pk{color:var(--muted)}
+.panel-row .pv{color:var(--text);font-family:var(--mono);text-align:right;max-width:55%}
+.panel-close{
+  position:absolute;top:1rem;right:1rem;background:none;border:none;
+  color:var(--muted);font-size:1.3rem;cursor:pointer;
+}
+
+/* ── Footer ── */
+footer{text-align:center;padding:3rem 2rem;color:var(--dim);font-size:.85rem;border-top:1px solid var(--border)}
+</style>
+</head>
+<body>
+
+<!-- ════ NAV ════ -->
+<nav class="sticky">
+  <span class="brand">luxafor</span>
+  <a href="#top">Home</a>
+  <a href="#arch">Architecture</a>
+  <a href="#hid">HID Protocol</a>
+  <a href="#states">State Machine</a>
+  <a href="#probes">Probe Flow</a>
+  <a href="#install">Install</a>
+</nav>
+
+<!-- ════ HERO ════ -->
+<section class="hero" id="top">
+  <div class="hero-badge">USB LED &middot; Internet Monitor &middot; Python 3.12+</div>
+  <h1>How luxafor works</h1>
+  <p class="subtitle">A Python driver and internet health monitor for the Luxafor Flag USB LED device. It turns an idle desk gadget into a real-time glanceable connectivity indicator by probing DNS resolvers, computing a weighted health score, and driving the LED through HID or a remote webhook.</p>
+  <div class="why-grid">
+    <div class="why-card"><h3>The Problem</h3><p>The Luxafor Flag sits on your desk doing nothing useful. Its vendor software is limited to calendar-based notifications and manual color switching.</p></div>
+    <div class="why-card"><h3>The Solution</h3><p>A Python driver with a built-in health monitor that probes DNS resolvers every 1.5 seconds and maps connectivity to LED color through a 4-state machine with hysteresis.</p></div>
+    <div class="why-card"><h3>The Payoff</h3><p>Glanceable connectivity status. Green means fine. Yellow means degraded. Solid red means down. Blinking red means act now &mdash; you've been offline for 5+ minutes.</p></div>
+  </div>
+</section>
+
+<!-- ════ ARCHITECTURE ════ -->
+<section id="arch">
+  <h2><span class="dot" style="background:var(--sky)"></span>Architecture</h2>
+  <p class="section-sub">Two control paths: local USB HID for direct hardware control, and remote HTTP webhook for network-attached devices. The monitor uses the local path.</p>
+  <div class="viz-wrap">
+    <svg id="arch-svg" viewBox="0 0 960 340"></svg>
+  </div>
+</section>
+
+<!-- ════ HID PROTOCOL ════ -->
+<section id="hid">
+  <h2><span class="dot" style="background:var(--purple)"></span>HID Protocol</h2>
+  <p class="section-sub">The Luxafor Flag communicates over USB HID with an 8-byte buffer. Byte 0 is the report ID (always 0x00). Byte 2 carries the color code as an ASCII value.</p>
+
+  <div class="hid-grid" id="hid-buffer"></div>
+  <div class="hid-bytes-output" id="hid-output">bytes(b'\x00\x00\x4f\x00\x00\x00\x00\x00')</div>
+
+  <div class="viz-wrap" style="padding:1rem 1.5rem">
+    <table class="color-table" id="color-table">
+      <thead><tr><th>Color</th><th>Enum Name</th><th>Hex</th><th>ASCII</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ════ STATE MACHINE ════ -->
+<section id="states">
+  <h2><span class="dot" style="background:var(--green)"></span>Monitor State Machine</h2>
+  <p class="section-sub">Four states with threshold-based transitions and 3-second hysteresis. DOWN escalates to CRITICAL after <code style="background:var(--bg2);padding:.1rem .4rem;border-radius:4px;font-family:var(--mono);font-size:.85rem">critical_after</code> seconds (default 300).</p>
+  <div class="viz-wrap">
+    <div class="viz-controls">
+      <button id="sm-play">Play</button>
+      <button id="sm-reset">Reset</button>
+    </div>
+    <svg id="sm-svg" viewBox="0 0 700 420"></svg>
+  </div>
+</section>
+
+<!-- ════ PROBE FLOW ════ -->
+<section id="probes">
+  <h2><span class="dot" style="background:var(--sky)"></span>Probe Flow</h2>
+  <p class="section-sub">Every 1.5 seconds, TCP connect probes fire at three DNS resolvers concurrently. Results feed through a sliding window, weighted scoring, hysteresis, and finally drive the LED.</p>
+  <div class="viz-wrap">
+    <div class="viz-controls">
+      <button id="pf-play">Play</button>
+      <button id="pf-reset">Reset</button>
+    </div>
+    <svg id="pf-svg" viewBox="0 0 960 200"></svg>
+  </div>
+</section>
+
+<!-- ════ INSTALL ════ -->
+<section id="install">
+  <h2><span class="dot" style="background:var(--green)"></span>Install</h2>
+  <p class="section-sub">Get up and running in three steps.</p>
+  <div class="install-steps">
+    <div class="install-step">
+      <div class="step-num">1</div>
+      <div class="step-body">
+        <h3>Clone the repo</h3>
+        <p>Grab the source from GitHub.</p>
+        <code>git clone https://github.com/joeblackwaslike/luxafor.git
+cd luxafor</code>
+      </div>
+    </div>
+    <div class="install-step">
+      <div class="step-num">2</div>
+      <div class="step-body">
+        <h3>Install dependencies</h3>
+        <p>Uses <strong>uv</strong> for fast, reproducible installs.</p>
+        <code>uv sync</code>
+      </div>
+    </div>
+    <div class="install-step">
+      <div class="step-num">3</div>
+      <div class="step-body">
+        <h3>Run the monitor</h3>
+        <p>Start monitoring. Green means you're online.</p>
+        <code>luxafor monitor</code>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>luxafor &mdash; Python 3.12+ &middot; MIT License &middot; github.com/joeblackwaslike/luxafor</footer>
+
+<!-- ════ PROPERTY PANEL ════ -->
+<div class="panel-overlay" id="panel-overlay"></div>
+<div class="prop-panel" id="prop-panel">
+  <button class="panel-close" id="panel-close">&times;</button>
+  <div id="panel-badge" class="panel-badge"></div>
+  <div id="panel-label" class="panel-label"></div>
+  <div id="panel-props"></div>
+</div>
+
+<script>
+/* ── Type System ── */
+const NK = {
+  cli:'#c2410c', module:'#0369a1', protocol:'#7c3aed', device:'#16a34a',
+  state_healthy:'#16a34a', state_degraded:'#ca8a04', state_down:'#dc2626', state_critical:'#dc2626',
+  probe:'#0ea5e9', stage:'#6d28d9', resolver:'#475569',
+};
+const NI = {
+  cli:'▶', module:'◆', protocol:'⚡', device:'◉',
+  state_healthy:'●', state_degraded:'●', state_down:'●', state_critical:'◎',
+  probe:'↗', stage:'▣', resolver:'◈',
+};
+
+/* ── Panel ── */
+const panelOverlay = document.getElementById('panel-overlay');
+const propPanel    = document.getElementById('prop-panel');
+const panelBadge   = document.getElementById('panel-badge');
+const panelLabel   = document.getElementById('panel-label');
+const panelProps   = document.getElementById('panel-props');
+const panelClose   = document.getElementById('panel-close');
+
+function openPanel(node) {
+  const color = NK[node.kind] || '#666';
+  panelBadge.textContent = node.kind.replace(/_/g,' ').toUpperCase();
+  panelBadge.style.background = color;
+  panelLabel.textContent = node.label;
+  panelProps.innerHTML = '';
+  if (node.props) {
+    Object.entries(node.props).forEach(([k,v]) => {
+      const row = document.createElement('div');
+      row.className = 'panel-row';
+      row.innerHTML = `<span class="pk">${k}</span><span class="pv">${v}</span>`;
+      panelProps.appendChild(row);
+    });
+  }
+  panelOverlay.classList.add('open');
+  propPanel.classList.add('open');
+}
+function closePanel() {
+  panelOverlay.classList.remove('open');
+  propPanel.classList.remove('open');
+}
+panelOverlay.addEventListener('click', closePanel);
+panelClose.addEventListener('click', closePanel);
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closePanel(); });
+
+/* ── Helpers ── */
+function drawNode(g, node, x, y) {
+  const color = NK[node.kind] || '#666';
+  const icon  = NI[node.kind] || '●';
+  const group = g.append('g')
+    .attr('transform', `translate(${x},${y})`)
+    .style('cursor','pointer')
+    .on('click', () => openPanel(node));
+
+  group.append('circle').attr('r',26).attr('fill',color).attr('opacity',.15);
+  group.append('circle').attr('r',20).attr('fill',color).attr('opacity',.9);
+  group.append('text').attr('text-anchor','middle').attr('dy','0.38em')
+    .attr('font-size','14px').attr('fill','#fff').text(icon);
+  group.append('text').attr('text-anchor','middle').attr('y',38)
+    .attr('font-size','12px').attr('fill','#dde6f0').attr('font-weight','600').text(node.label);
+
+  if (node.sublabel) {
+    group.append('text').attr('text-anchor','middle').attr('y',52)
+      .attr('font-size','10px').attr('fill','#7a9ab8').text(node.sublabel);
+  }
+  return group;
+}
+
+function arrowDefs(svg, id, color) {
+  svg.append('defs').append('marker')
+    .attr('id', id).attr('viewBox','0 -5 10 10')
+    .attr('refX',10).attr('refY',0)
+    .attr('markerWidth',8).attr('markerHeight',8)
+    .attr('orient','auto')
+    .append('path').attr('d','M0,-5L10,0L0,5').attr('fill',color);
+}
+
+/* ════════════════════════════════════════════════
+   ARCHITECTURE DIAGRAM
+   ════════════════════════════════════════════════ */
+(function(){
+  const svg = d3.select('#arch-svg');
+  arrowDefs(svg,'arr-dim','#3d5a78');
+  arrowDefs(svg,'arr-sky','#38bdf8');
+  arrowDefs(svg,'arr-purple','#c084fc');
+  arrowDefs(svg,'arr-green','#4ade80');
+
+  const nodes = [
+    {id:'cli',     kind:'cli',      label:'CLI',           sublabel:'__main__.py',  x:80,  y:70,
+     props:{module:'luxafor.__main__',framework:'Typer',commands:'set_color, monitor',entry:'luxafor (console_scripts)'}},
+    {id:'local',   kind:'module',   label:'local._hid',    sublabel:'LuxaforFlag',  x:300, y:70,
+     props:{module:'luxafor.local._hid',class:'LuxaforFlag',vendor_id:'0x04D8',product_id:'0xF372',method:'set_color(FlagColor)'}},
+    {id:'usb',     kind:'protocol', label:'USB HID',       sublabel:'8-byte write', x:520, y:70,
+     props:{protocol:'USB HID',buffer_size:'8 bytes',report_id:'0x00',library:'hid (cython-hidapi)',direction:'Host → Device'}},
+    {id:'flag1',   kind:'device',   label:'Luxafor Flag',  sublabel:'LED device',   x:740, y:70,
+     props:{device:'Luxafor Flag',vendor_id:'0x04D8',product_id:'0xF372',leds:'6 RGB LEDs',connection:'USB 2.0'}},
+
+    {id:'monitor', kind:'module',   label:'monitor.py',    sublabel:'InternetMonitor', x:80, y:190,
+     props:{module:'luxafor.monitor',class:'InternetMonitor',probe_interval:'1.5s',probe_timeout:'2.0s',window_size:'20 samples',hysteresis:'3.0s',critical_after:'300s (default)'}},
+    {id:'local2',  kind:'module',   label:'local._hid',    sublabel:'LuxaforFlag',  x:300, y:190,
+     props:{module:'luxafor.local._hid',class:'LuxaforFlag',method:'set_color(FlagColor)',note:'Same module as direct CLI path'}},
+    {id:'usb2',    kind:'protocol', label:'USB HID',       sublabel:'8-byte write', x:520, y:190,
+     props:{protocol:'USB HID',buffer_size:'8 bytes',report_id:'0x00',direction:'Host → Device'}},
+    {id:'flag2',   kind:'device',   label:'Luxafor Flag',  sublabel:'LED device',   x:740, y:190,
+     props:{device:'Luxafor Flag',connection:'USB 2.0'}},
+
+    {id:'code',    kind:'cli',      label:'Your Code',     sublabel:'import luxafor', x:80, y:310,
+     props:{usage:'from luxafor.remote import RemoteWebhookFlag, FlagColor',class:'RemoteWebhookFlag',method:'solid_color(FlagColor)'}},
+    {id:'webhook', kind:'module',   label:'remote.webhook', sublabel:'RemoteWebhookFlag', x:300, y:310,
+     props:{module:'luxafor.remote.webhook',class:'RemoteWebhookFlag',http_client:'httpx.AsyncClient',default_port:'5383',endpoint:'/webhook/v1/actions/solid_color'}},
+    {id:'http',    kind:'protocol', label:'HTTP POST',     sublabel:'JSON payload', x:520, y:310,
+     props:{protocol:'HTTP',method:'POST',content_type:'application/json',payload:'{"userId":"...","actionFields":{"color":"red"}}',timeout:'10s'}},
+    {id:'api',     kind:'device',   label:'Webhook API',   sublabel:'Luxafor cloud', x:740, y:310,
+     props:{service:'Luxafor Webhook API',auth:'token-based',transport:'HTTPS',note:'Controls flag via cloud relay'}},
+  ];
+
+  const edges = [
+    {from:'cli',x1:106,y1:70, to:'local',x2:274,y2:70,     marker:'arr-sky'},
+    {from:'local',x1:326,y1:70, to:'usb',x2:494,y2:70,     marker:'arr-purple'},
+    {from:'usb',x1:546,y1:70, to:'flag1',x2:714,y2:70,     marker:'arr-green'},
+
+    {from:'monitor',x1:106,y1:190,to:'local2',x2:274,y2:190, marker:'arr-sky'},
+    {from:'local2',x1:326,y1:190,to:'usb2',x2:494,y2:190,   marker:'arr-purple'},
+    {from:'usb2',x1:546,y1:190,to:'flag2',x2:714,y2:190,    marker:'arr-green'},
+
+    {from:'code',x1:106,y1:310,to:'webhook',x2:274,y2:310,  marker:'arr-sky'},
+    {from:'webhook',x1:326,y1:310,to:'http',x2:494,y2:310,  marker:'arr-purple'},
+    {from:'http',x1:546,y1:310,to:'api',x2:714,y2:310,      marker:'arr-green'},
+  ];
+
+  /* path labels */
+  svg.append('text').attr('x',20).attr('y',30).attr('fill','#7a9ab8').attr('font-size','11px').attr('font-weight','600').text('Direct CLI Path');
+  svg.append('text').attr('x',20).attr('y',150).attr('fill','#7a9ab8').attr('font-size','11px').attr('font-weight','600').text('Monitor Path');
+  svg.append('text').attr('x',20).attr('y',270).attr('fill','#7a9ab8').attr('font-size','11px').attr('font-weight','600').text('Remote Webhook Path');
+
+  edges.forEach(e => {
+    svg.append('line')
+      .attr('x1',e.x1).attr('y1',e.y1).attr('x2',e.x2).attr('y2',e.y2)
+      .attr('stroke','#3d5a78').attr('stroke-width',1.5)
+      .attr('marker-end',`url(#${e.marker})`);
+  });
+
+  nodes.forEach(n => drawNode(svg, n, n.x, n.y));
+})();
+
+/* ════════════════════════════════════════════════
+   HID PROTOCOL
+   ════════════════════════════════════════════════ */
+(function(){
+  const colors = [
+    {name:'Off',     enum:'OFF',     hex:'0x4F', ascii:'O', css:'#333'},
+    {name:'Red',     enum:'RED',     hex:'0x52', ascii:'R', css:'#ef4444'},
+    {name:'Green',   enum:'GREEN',   hex:'0x47', ascii:'G', css:'#22c55e'},
+    {name:'Blue',    enum:'BLUE',    hex:'0x42', ascii:'B', css:'#3b82f6'},
+    {name:'Cyan',    enum:'CYAN',    hex:'0x43', ascii:'C', css:'#06b6d4'},
+    {name:'Magenta', enum:'MAGENTA', hex:'0x4D', ascii:'M', css:'#d946ef'},
+    {name:'Yellow',  enum:'YELLOW',  hex:'0x59', ascii:'Y', css:'#eab308'},
+    {name:'White',   enum:'WHITE',   hex:'0x57', ascii:'W', css:'#f0f0f0'},
+  ];
+
+  const bufferVals = [0x00,0x00,0x4F,0x00,0x00,0x00,0x00,0x00];
+  const bufferEl = document.getElementById('hid-buffer');
+  const outputEl = document.getElementById('hid-output');
+
+  /* Build buffer cells */
+  const cells = [];
+  for (let i = 0; i < 8; i++) {
+    const cell = document.createElement('div');
+    cell.className = 'hid-cell' + ((i===0||i===2)?' highlight':'');
+    cell.innerHTML = `<span class="idx">[${i}]</span><span class="val">${toHexStr(bufferVals[i])}</span>`;
+    bufferEl.appendChild(cell);
+    cells.push(cell);
+  }
+
+  /* Byte label tags under highlighted cells */
+  cells[0].insertAdjacentHTML('beforeend','<span style="position:absolute;bottom:2px;font-size:.6rem;color:#38bdf8">Report ID</span>');
+  cells[2].insertAdjacentHTML('beforeend','<span style="position:absolute;bottom:2px;font-size:.6rem;color:#38bdf8">Color</span>');
+
+  function toHexStr(v){return '0x'+v.toString(16).toUpperCase().padStart(2,'0');}
+  function updateBuffer(hexVal){
+    bufferVals[2]=hexVal;
+    cells[2].querySelector('.val').textContent=toHexStr(hexVal);
+    const parts=bufferVals.map(v=>'\\x'+v.toString(16).padStart(2,'0'));
+    outputEl.textContent=`bytes(b'${parts.join('')}')`;
+  }
+
+  /* Color table */
+  const tbody = document.querySelector('#color-table tbody');
+  let activeRow = null;
+  colors.forEach((c,idx) => {
+    const tr = document.createElement('tr');
+    if (idx===0) { tr.classList.add('active'); activeRow=tr; }
+    tr.innerHTML=`<td><span class="color-dot" style="background:${c.css}"></span>${c.name}</td><td>${c.enum}</td><td>${c.hex}</td><td>${c.ascii}</td>`;
+    tr.addEventListener('click',()=>{
+      if(activeRow) activeRow.classList.remove('active');
+      tr.classList.add('active');
+      activeRow=tr;
+      updateBuffer(parseInt(c.hex));
+    });
+
+    tr.style.cursor='pointer';
+    tr.addEventListener('click', function handler(){
+      openPanel({
+        kind:'protocol', label:`FlagColor.${c.enum}`,
+        props:{color:c.name, hex_value:c.hex, ascii_char:c.ascii, byte_position:'2',
+               usage:`HIDBuffer(color=FlagColor.${c.enum})`, buffer_repr:`bytes([0x00, 0x00, ${c.hex}, 0x00, 0x00, 0x00, 0x00, 0x00])`}
+      });
+    });
+    tbody.appendChild(tr);
+  });
+})();
+
+/* ════════════════════════════════════════════════
+   STATE MACHINE
+   ════════════════════════════════════════════════ */
+(function(){
+  const svg = d3.select('#sm-svg');
+  arrowDefs(svg,'sm-arr','#3d5a78');
+
+  const cx=350, cy=210;
+  const states = [
+    {id:'healthy',  kind:'state_healthy',  label:'HEALTHY',  x:cx,     y:cy-140,
+     props:{state:'HEALTHY',led_color:'Green',led_behavior:'Solid',health_range:'> 0.8',status_color_enum:'FlagColor.GREEN',note:'All probes succeeding, internet connectivity is normal'}},
+    {id:'degraded', kind:'state_degraded', label:'DEGRADED', x:cx+180, y:cy,
+     props:{state:'DEGRADED',led_color:'Yellow',led_behavior:'Solid',health_range:'0.4 – 0.8',status_color_enum:'FlagColor.YELLOW',note:'Some probes failing, connectivity is impaired'}},
+    {id:'down',     kind:'state_down',     label:'DOWN',     x:cx,     y:cy+140,
+     props:{state:'DOWN',led_color:'Red',led_behavior:'Solid',health_range:'≤ 0.4',status_color_enum:'FlagColor.RED',note:'Most or all probes failing, no connectivity',escalation:'Escalates to CRITICAL after critical_after seconds'}},
+    {id:'critical', kind:'state_critical', label:'CRITICAL', x:cx-180, y:cy,
+     props:{state:'CRITICAL',led_color:'Red',led_behavior:'Blinking (0.5s interval)',health_range:'≤ 0.4 (sustained)',status_color_enum:'FlagColor.RED',trigger:`DOWN for ≥ critical_after seconds (default 300)`,note:'Prolonged outage, blinking demands attention'}},
+  ];
+
+  const transitions = [
+    {from:'healthy',  to:'degraded', label:'score ≤ 0.8', cx:cx+120, cy:cy-100},
+    {from:'degraded', to:'healthy',  label:'score > 0.8',  cx:cx+120, cy:cy-60},
+    {from:'degraded', to:'down',     label:'score ≤ 0.4', cx:cx+120, cy:cy+100},
+    {from:'down',     to:'degraded', label:'score > 0.4',  cx:cx+120, cy:cy+60},
+    {from:'down',     to:'critical', label:'time ≥ critical_after', cx:cx-140, cy:cy+100},
+    {from:'critical', to:'healthy',  label:'score > 0.8',  cx:cx-140, cy:cy-100},
+  ];
+
+  function getState(id){ return states.find(s=>s.id===id); }
+
+  /* Draw transitions */
+  transitions.forEach(t => {
+    const s=getState(t.from), e=getState(t.to);
+    const dx=e.x-s.x, dy=e.y-s.y;
+    const len=Math.sqrt(dx*dx+dy*dy);
+    const nx=dx/len, ny=dy/len;
+
+    /* offset for bidirectional */
+    const px=-ny*12, py=nx*12;
+
+    const x1=s.x+nx*30+px, y1=s.y+ny*30+py;
+    const x2=e.x-nx*30+px, y2=e.y-ny*30+py;
+
+    svg.append('line')
+      .attr('x1',x1).attr('y1',y1).attr('x2',x2).attr('y2',y2)
+      .attr('stroke','#3d5a78').attr('stroke-width',1.2)
+      .attr('marker-end','url(#sm-arr)');
+
+    const mx=(x1+x2)/2+px*0.5, my=(y1+y2)/2+py*0.5;
+    svg.append('text').attr('x',mx).attr('y',my)
+      .attr('text-anchor','middle').attr('font-size','9.5px').attr('fill','#7a9ab8')
+      .attr('font-family','var(--mono)').text(t.label);
+  });
+
+  /* "3s hysteresis" annotation */
+  svg.append('text').attr('x',cx).attr('y',cy+195)
+    .attr('text-anchor','middle').attr('font-size','11px').attr('fill','#7a9ab8')
+    .attr('font-style','italic').text('All transitions require 3s hysteresis');
+
+  /* Draw state nodes */
+  const nodeGroups = {};
+  states.forEach(s => {
+    const g = drawNode(svg, s, s.x, s.y);
+    nodeGroups[s.id] = g;
+  });
+
+  /* Animation */
+  const cycle = ['healthy','degraded','down','critical'];
+  let animIdx = -1, animTimer = null;
+  const glows = {};
+
+  states.forEach(s => {
+    const g = nodeGroups[s.id];
+    const glow = g.insert('circle',':first-child').attr('r',34)
+      .attr('fill','none').attr('stroke',NK[s.kind]).attr('stroke-width',3).attr('opacity',0);
+    glows[s.id] = glow;
+  });
+
+  function highlightState(id){
+    Object.values(glows).forEach(g=>g.attr('opacity',0));
+    if(id && glows[id]) glows[id].transition().duration(200).attr('opacity',.7);
+  }
+
+  document.getElementById('sm-play').addEventListener('click',()=>{
+    if(animTimer) return;
+    animIdx=0;
+    highlightState(cycle[0]);
+    animTimer=setInterval(()=>{
+      animIdx=(animIdx+1)%cycle.length;
+      highlightState(cycle[animIdx]);
+    },1500);
+  });
+  document.getElementById('sm-reset').addEventListener('click',()=>{
+    if(animTimer){clearInterval(animTimer);animTimer=null;}
+    animIdx=-1;
+    highlightState(null);
+  });
+})();
+
+/* ════════════════════════════════════════════════
+   PROBE FLOW
+   ════════════════════════════════════════════════ */
+(function(){
+  const svg = d3.select('#pf-svg');
+  arrowDefs(svg,'pf-arr','#3d5a78');
+
+  const stages = [
+    {id:'resolvers', kind:'resolver', label:'DNS Resolvers', x:70, y:100,
+     props:{targets:'8.8.8.8:53, 1.1.1.1:53, 9.9.9.9:53',protocol:'TCP connect',count:'3 targets',note:'Google DNS, Cloudflare DNS, Quad9 DNS'}},
+    {id:'tcp',       kind:'probe',    label:'TCP Probes',    x:200, y:100,
+     props:{method:'anyio.connect_tcp(host, port)',timeout:'2.0 seconds',concurrency:'All 3 probed concurrently via TaskGroup',result:'bool per target'}},
+    {id:'sample',    kind:'stage',    label:'ProbeSample',   x:330, y:100,
+     props:{dataclass:'ProbeSample',fields:'timestamp: float, successes: int, total: int',example:'ProbeSample(timestamp=1234.5, successes=3, total=3)'}},
+    {id:'window',    kind:'stage',    label:'Sliding Window', x:460, y:100,
+     props:{implementation:'collections.deque(maxlen=20)',size:'20 samples',behavior:'FIFO — oldest sample drops when full',note:'Maintains recent history for weighted scoring'}},
+    {id:'score',     kind:'stage',    label:'Weighted Score', x:590, y:100,
+     props:{formula:'Σ(weight_i × success_i/total_i) / Σ(weight_i)',weighting:'weight = 1 + index (newer samples weigh more)',range:'0.0 – 1.0',note:'Biased toward recent samples to react quickly'}},
+    {id:'hyst',      kind:'stage',    label:'Hysteresis',    x:720, y:100,
+     props:{duration:'3.0 seconds',mechanism:'Suggested status must persist for 3s before becoming current',purpose:'Prevents rapid LED flickering on transient packet loss'}},
+    {id:'status',    kind:'stage',    label:'Status',        x:820, y:100,
+     props:{enum:'Status(Enum)',values:'HEALTHY, DEGRADED, DOWN, CRITICAL',mapping:'> 0.8 → HEALTHY, 0.4–0.8 → DEGRADED, ≤ 0.4 → DOWN',escalation:'DOWN → CRITICAL after critical_after seconds'}},
+    {id:'led',       kind:'device',   label:'LED Color',     x:920, y:100,
+     props:{green:'HEALTHY → FlagColor.GREEN',yellow:'DEGRADED → FlagColor.YELLOW',red_solid:'DOWN → FlagColor.RED',red_blink:'CRITICAL → FlagColor.RED (blinking 0.5s)',anomaly:'Anomaly flash → FlagColor.CYAN (0.6s)'}},
+  ];
+
+  const edges = [];
+  for(let i=0;i<stages.length-1;i++){
+    edges.push({from:stages[i],to:stages[i+1]});
+  }
+
+  /* Draw edges (hidden initially for animation) */
+  const edgeLines = [];
+  edges.forEach(e => {
+    const line = svg.append('line')
+      .attr('x1',e.from.x+26).attr('y1',e.from.y)
+      .attr('x2',e.to.x-26).attr('y2',e.to.y)
+      .attr('stroke','#3d5a78').attr('stroke-width',1.5)
+      .attr('marker-end','url(#pf-arr)')
+      .attr('opacity',0);
+    edgeLines.push(line);
+  });
+
+  /* Draw stage nodes */
+  const nodeGroups = [];
+  stages.forEach((s,i) => {
+    const g = drawNode(svg, s, s.x, s.y);
+    const glow = g.insert('circle',':first-child').attr('r',34)
+      .attr('fill','none').attr('stroke',NK[s.kind]).attr('stroke-width',3).attr('opacity',0);
+    nodeGroups.push({g,glow});
+  });
+
+  /* Show all edges immediately (non-animated default) */
+  edgeLines.forEach(l=>l.attr('opacity',1));
+
+  let animTimer=null, animStep=0;
+  function resetAnim(){
+    if(animTimer){clearInterval(animTimer);animTimer=null;}
+    animStep=0;
+    edgeLines.forEach(l=>l.attr('opacity',1));
+    nodeGroups.forEach(n=>n.glow.attr('opacity',0));
+  }
+
+  document.getElementById('pf-play').addEventListener('click',()=>{
+    resetAnim();
+    edgeLines.forEach(l=>l.attr('opacity',0));
+    nodeGroups[0].glow.transition().duration(200).attr('opacity',.7);
+    animStep=0;
+    animTimer=setInterval(()=>{
+      if(animStep<edgeLines.length){
+        edgeLines[animStep].transition().duration(300).attr('opacity',1);
+        nodeGroups[animStep].glow.transition().duration(200).attr('opacity',0);
+        nodeGroups[animStep+1].glow.transition().duration(200).attr('opacity',.7);
+        animStep++;
+      } else {
+        nodeGroups[nodeGroups.length-1].glow.transition().duration(600).attr('opacity',0);
+        clearInterval(animTimer);
+        animTimer=null;
+      }
+    },400);
+  });
+  document.getElementById('pf-reset').addEventListener('click', resetAnim);
+})();
+</script>
+</body>
+</html>
